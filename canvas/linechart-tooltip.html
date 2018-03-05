@@ -1,0 +1,442 @@
+<html>
+   <head>
+      <!--https://www.safaribooksonline.com/library/view/learning-d3js-4/9781787280175/f17a9532-e27f-4a97-969c-ebd0dc66524d.xhtml-->
+      <meta charset="utf-8">
+      <script src="https://d3js.org/d3.v5.min.js"></script>
+      <script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+      <script src="https://d3js.org/d3-scale.v1.min.js"></script>
+      <style type="text/css">
+        .hiddenCanvas{
+          display: none;
+          /*  */background: red;
+        }
+
+        div#tooltip {
+          position: absolute;        
+          display: inline-block;
+          padding: 10px;
+          font-family: 'Open Sans' sans-serif;
+          color: #000;
+          background-color: #fff;
+          border: 1px solid #999;
+          border-radius: 2px;
+            pointer-events: none;
+          opacity: 0;
+          z-index: 1;
+        }
+      </style>
+   </head>
+   <body>
+      <div id="container"></div>
+      <div id="tooltip"></div>
+      
+      <script>
+        /* Set up global variables */
+        /* ======================= */
+        
+        var parseTime = d3.timeParse("%Q"); // %d-%b-%y
+
+        var margin = {
+              top: 20,
+              right: 20,
+              bottom: 30,
+              left: 50
+            },
+            width = 960,
+            height = 500,
+            colorToPoint = {}, // map to track color the nodes.
+            selected = false;
+
+        var innerWidth = width - margin.left - margin.right,
+            innerHeight = height - margin.top - margin.bottom;
+
+        var data = [];
+
+        /* Set up canvas & context */
+        /* ========================================== */
+
+        /* Main canvas */
+        /* ----------- */
+
+        // Main canvas and context
+        var mainCanvas = d3.select('#container')
+          .append('canvas')
+          .classed('mainCanvas', true)
+          .attr('width', width)
+          .attr('height', height)
+
+        var mainContext = mainCanvas.node().getContext('2d');
+
+        /* Hidden canvas */
+        /* ------------- */
+
+        // Hidden canvas and context
+        var hiddenCanvas = d3.select('#container')
+          .append('canvas')
+          .classed('hiddenCanvas', true)
+          .attr('width', width)
+          .attr('height', height);
+          // .style.display = 'none'
+
+        var hiddenContext = hiddenCanvas.node().getContext('2d');
+
+        /* Buffer canvas */
+        /* ------------- */
+
+        var bufferCanvas = document.createElement('canvas');
+        var bufferContext = bufferCanvas.getContext('2d') // .translate(margin.left, margin.top)
+        
+        bufferContext.canvas.width = width;
+        bufferContext.canvas.height = height;
+
+        /* Function to create new colours for the picking going from 0,0,0 to 255,255,255 */
+        /* ----------- */
+
+        var nextCol = 1;
+
+        function genColor(){
+          var ret = [];
+          // via http://stackoverflow.com/a/15804183
+          if(nextCol < 16777215){
+            ret.push(nextCol & 0xff); // R
+            ret.push((nextCol & 0xff00) >> 8); // G 
+            ret.push((nextCol & 0xff0000) >> 16); // B
+
+            nextCol += 1; 
+          }
+          var col = "rgb(" + ret.join(',') + ")";
+          return col;
+        }
+
+        /* Stuff */
+        /* ------------- */
+
+        var x = d3.scaleTime()
+          .range([0, innerWidth]);
+
+        var y = d3.scaleLinear()
+          .range([innerHeight, 0]);
+
+        var line = d3.line()
+            .x(function(d) {
+              return x(d.x);
+            })
+            .y(function(d) {
+              return y(d.y);
+            })
+            .curve(d3.curveLinear)
+            .context(bufferContext);
+
+        // mainContext.translate(margin.left, margin.top)
+        hiddenContext.translate(margin.left, margin.top);
+        bufferContext.translate(margin.left, margin.top)
+        
+        function xAxis(context) {
+          var tickCount = 10,
+            tickSize = 6,
+            ticks = x.ticks(tickCount),
+            tickFormat = x.tickFormat();
+
+          context.beginPath();
+          ticks.forEach(function(d) {
+            context.moveTo(x(d), innerHeight);
+            context.lineTo(x(d), innerHeight + tickSize);
+          });
+          context.strokeStyle = "black";
+          context.stroke();
+
+          // context.beginPath();
+          // context.moveTo(0, innerHeight);
+          // //context.lineTo(0.5, 0);
+          // context.lineTo(innerWidth, innerHeight);
+          // //context.lineTo(-tickSize, innerWidth);
+          // context.strokeStyle = "black";
+          // context.stroke();
+
+          context.textAlign = "center";
+          context.textBaseline = "top";
+          ticks.forEach(function(d) {
+            context.fillText(tickFormat(d), x(d), innerHeight + tickSize);
+          });
+        }
+
+        function yAxis(context) {
+          var tickCount = 10,
+            tickSize = 6,
+            tickPadding = 3,
+            ticks = y.ticks(tickCount),
+            tickFormat = y.tickFormat(tickCount);
+
+          bufferContext.lineWidth = 1;
+          context.beginPath();
+          ticks.forEach(function(d) {
+            context.moveTo(0, y(d));
+            context.lineTo(-6, y(d));
+          });
+          context.strokeStyle = "black";
+          context.stroke();
+
+          context.beginPath();
+          context.moveTo(-tickSize, 0);
+          context.lineTo(0.5, 0);
+          context.lineTo(0.5, innerHeight);
+          context.lineTo(-tickSize, innerHeight);
+          context.strokeStyle = "black";
+          context.stroke();
+
+          context.textAlign = "right";
+          context.textBaseline = "middle";
+          ticks.forEach(function(d) {
+            context.fillText(tickFormat(d), -tickSize - tickPadding, y(d));
+          });
+
+          context.save();
+          context.rotate(-Math.PI / 2);
+          context.textAlign = "right";
+          context.textBaseline = "top";
+          context.font = "bold 10px sans-serif";
+          context.fillText("Price (US$)", -10, 10);
+          context.restore();
+        }
+
+        /* Drawing functions */
+        /* ================= */
+
+        function drawScene(pointIndex){
+
+          // Store the current transformation matrix
+          bufferContext.save();
+          hiddenContext.save();
+
+          // Use the identity matrix while clearing the canvas
+          bufferContext.setTransform(1, 0, 0, 1, 0, 0);
+          bufferContext.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
+          hiddenContext.setTransform(1, 0, 0, 1, 0, 0);
+          hiddenContext.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
+
+          // Restore the transform
+          bufferContext.restore();
+          hiddenContext.restore();
+
+          x.domain(d3.extent(data, (d => d.x)));
+          y.domain(d3.extent(data, (d => d.y)));
+
+          xAxis(bufferContext);
+          yAxis(bufferContext);
+
+          bufferContext.beginPath();
+          line(data);
+          bufferContext.lineWidth = 1.5;
+          bufferContext.strokeStyle = "steelblue";
+          bufferContext.stroke();
+
+          // if(pointIndex !== false && pointIndex >= 0) {
+          //   bufferContext.beginPath();
+          //   bufferContext.fillStyle = 'steelblue';
+          //   bufferContext.arc(x(data[pointIndex].x), y(data[pointIndex].y), 5, 0, 2*Math.PI);
+          //   bufferContext.fill();
+          // }
+          
+        }
+        
+        function renderScene(pointIndex){
+          // Draw scene
+          drawScene(pointIndex);
+          
+          mainContext.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height)
+
+          // Render scene
+          mainContext.drawImage(bufferCanvas, 0, 0, bufferCanvas.width, bufferCanvas.height);
+        }   
+
+        function drawHiddenCanvas(){
+          //var points = data;
+          for(var i = 0; i < data.length; i++){
+            let pickedColor = undefined;
+            if(data[i].__pickColor === undefined) {
+              
+              // If we have never drawn the node to the hidden canvas get a new
+              // color for it and put it in the dictionary.
+               
+              pickedColor = genColor();
+              data[i].__pickColor = pickedColor;
+              colorToPoint[data[i].__pickColor] = data[i];
+            } else {
+              pickedColor = data[i].__pickColor;
+            }
+
+            hiddenContext.beginPath();
+            hiddenContext.arc(x(data[i].x), y(data[i].y), 5, 0, 2*Math.PI);
+            // 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')'
+            hiddenContext.fillStyle = pickedColor //'rgb(' + i + ',0,0)'; // Each hidden point gets a color with the pattern rgb(<country index>, 0, 0).
+            hiddenContext.fill();
+
+          }
+        }
+
+        /* Main drawing function */
+        /* ===================== */
+
+        function ready() {
+
+          /* Initial Draw */
+          /* ------------ */
+
+          // Draw the scene
+          var t = d3.interval(function() {
+            // console.log(elapsed);
+            // if (elapsed > 200) t.stop();
+            if(data.length > 2000)
+              data.shift();
+            data.push({ x: parseTime(+ new Date()), y: (Math.random() * 1000) })
+            requestAnimationFrame(function() {
+              renderScene(selected);
+              drawHiddenCanvas();
+            });
+          }, 1000);   
+
+          /* Tooltip visual */
+          /* ============== */
+
+          var svg, yScale;
+          buildTooltip();
+
+          /* Mouseover countries */
+          /* ------------------- */
+
+          mainCanvas.on('mousemove', highlightPicking);
+
+          function highlightPicking() {
+            // Figure out where the mouse click occurred.
+            var mouseX = d3.event.layerX || d3.event.offsetX;
+            var mouseY = d3.event.layerY || d3.event.offsety;
+
+            // Get the corresponding pixel color on the hidden canvas
+            // and look up the node in our map.
+
+            // This will return that pixel's color
+            var pickedColor = hiddenContext.getImageData(mouseX, mouseY, 1, 1).data;
+
+            var inCanvas = 
+              Math.abs(mouseX < width) &&
+              Math.abs(mouseY < height);
+            
+            var colString = "rgb(" + pickedColor[0] + "," + pickedColor[1] + ","+ pickedColor[2] + ")";
+
+            // Our map uses these rgb strings as keys to nodes.
+            // checking for inCanvas and antialiasing (&& pickedColor[3] === 255)
+            selected = inCanvas && pickedColor[3] === 255 ? colString : false; 
+
+            // requestAnimationFrame(function() {
+            //   renderScene(selected);
+            // });
+
+            if (selected !== false) showTooltip(mouseX, mouseY, colorToPoint[selected])
+            if (selected === false) hideTooltip();
+          }
+
+          function buildTooltip() {
+            
+          }
+
+          var pointQueue = [undefined, undefined]; // initialise queue array to check for new build
+
+          function showTooltip(mouseX, mouseY, element) {
+
+            // Create queue to check when to build new tooltip
+            pointQueue.unshift(element.x);
+            pointQueue.pop();
+            
+            // Build and move tooltip accordingly
+
+            
+            d3.select('#tooltip')
+              .style('opacity', 0.8)
+              .style('left', mouseX + 5 + 'px')
+              .style('top', mouseY + 5 + 'px')
+              .html('x: ' + element.x + '<br>' + 'y: ' + element.y);
+          }
+
+          function hideTooltip() {
+            pointQueue.unshift(undefined);
+            pointQueue.pop();
+
+            d3.select('#tooltip')
+              // .transition().duration(100)
+              .style('opacity', 0);
+          }
+        }
+
+        ready()  
+
+      
+
+
+
+
+
+
+        
+      
+        
+        
+        
+        
+
+        function databind(data, x, y) {
+          // var join = custom.selectAll('custom.circle')
+          //   .data(data);
+
+
+          // var enterSel = join.enter()
+          //   .append('custom')
+          //   .attr('class', 'circle')
+          //   .attr('x', function(d, i) {
+          //     return x(d.x);
+          //   })
+          //   .attr('y', function(d, i) {
+          //     return y(d.y);
+          //   })
+
+          // join
+          //   .merge(enterSel)
+          //   .transition()
+          //   .attr('fillStyleHidden', function(d) {
+          //     if (!d.hiddenCol) {
+          //       d.hiddenCol = genColor();
+          //       colorToPoint[d.hiddenCol] = d;
+          //     }
+          //     return d.hiddenCol;
+          //   });
+
+        }
+
+
+        // d3.select('.mainCanvas').on('mousemove', function() {
+        //   // Figure out where the mouse click occurred.
+        //   var mouseX = d3.event.layerX || d3.event.offsetX;
+        //   var mouseY = d3.event.layerY || d3.event.offsety;
+
+        //   // Get the corresponding pixel color on the hidden canvas
+        //   // and look up the node in our map.
+        //   var hiddenCtx = hiddenCanvas.node().getContext('2d');
+        //   // This will return that pixel's color
+        //   var col = hiddenCtx.getImageData(mouseX, mouseY, 1, 1).data;
+        //   
+        //   var colKey = 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')';
+        //   var nodeData = colorToPoint[colKey];
+
+        //   if (nodeData) {
+        //     d3.select('#tooltip')
+        //       .style('opacity', 0.8)
+        //       .style('top', d3.event.pageY + 5 + 'px')
+        //       .style('left', d3.event.pageX + 5 + 'px')
+        //       .html('x: ' + nodeData.x + '<br>' + 'y: ' + nodeData.y);
+        //   } else {
+        //     d3.select('#tooltip')
+        //       .style('opacity', 0);
+        //   }
+        // })
+      </script>
+   </body>
+</html>
