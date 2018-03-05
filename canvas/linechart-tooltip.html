@@ -336,7 +336,7 @@
           }
 
           function buildTooltip() {
-            
+            // To-do:
           }
 
           var pointQueue = [undefined, undefined]; // initialise queue array to check for new build
@@ -348,7 +348,6 @@
             pointQueue.pop();
             
             // Build and move tooltip accordingly
-
             
             d3.select('#tooltip')
               .style('opacity', 0.8)
@@ -367,76 +366,7 @@
           }
         }
 
-        ready()  
-
-      
-
-
-
-
-
-
-        
-      
-        
-        
-        
-        
-
-        function databind(data, x, y) {
-          // var join = custom.selectAll('custom.circle')
-          //   .data(data);
-
-
-          // var enterSel = join.enter()
-          //   .append('custom')
-          //   .attr('class', 'circle')
-          //   .attr('x', function(d, i) {
-          //     return x(d.x);
-          //   })
-          //   .attr('y', function(d, i) {
-          //     return y(d.y);
-          //   })
-
-          // join
-          //   .merge(enterSel)
-          //   .transition()
-          //   .attr('fillStyleHidden', function(d) {
-          //     if (!d.hiddenCol) {
-          //       d.hiddenCol = genColor();
-          //       colorToPoint[d.hiddenCol] = d;
-          //     }
-          //     return d.hiddenCol;
-          //   });
-
-        }
-
-
-        // d3.select('.mainCanvas').on('mousemove', function() {
-        //   // Figure out where the mouse click occurred.
-        //   var mouseX = d3.event.layerX || d3.event.offsetX;
-        //   var mouseY = d3.event.layerY || d3.event.offsety;
-
-        //   // Get the corresponding pixel color on the hidden canvas
-        //   // and look up the node in our map.
-        //   var hiddenCtx = hiddenCanvas.node().getContext('2d');
-        //   // This will return that pixel's color
-        //   var col = hiddenCtx.getImageData(mouseX, mouseY, 1, 1).data;
-        //   
-        //   var colKey = 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')';
-        //   var nodeData = colorToPoint[colKey];
-
-        //   if (nodeData) {
-        //     d3.select('#tooltip')
-        //       .style('opacity', 0.8)
-        //       .style('top', d3.event.pageY + 5 + 'px')
-        //       .style('left', d3.event.pageX + 5 + 'px')
-        //       .html('x: ' + nodeData.x + '<br>' + 'y: ' + nodeData.y);
-        //   } else {
-        //     d3.select('#tooltip')
-        //       .style('opacity', 0);
-        //   }
-        // })
+        ready()
       </script>
    </body>
 </html>
