@@ -293,6 +293,27 @@
           
         }
 
+        function nextDay() {
+            now = + new Date(+now + oneDay);
+            return now
+        }
+
+        var now = +new Date(1997, 9, 3);
+        var oneDay = 24 * 3600 * 1000;
+
+        for (var i = 0; i < 2000; i++) {
+          var day = nextDay();
+          for(var k of [...data.keys()]){
+            data.get(k).push({
+              x: day,
+              y: Math.random() * 1000
+            });
+          }
+           
+        }
+
+        
+
         /* Main drawing function */
         /* ===================== */
 
@@ -309,16 +330,20 @@
             var dataArrKeys = [... data.keys()];
             var shift = false;
 
-            if(dataArrValues && dataArrValues[0].length && dataArrValues[0].length > 20)
+            if(dataArrValues && dataArrValues[0].length && dataArrValues[0].length > 2000)
               shift = true;
               
-
+            var day = nextDay();
             for(var i = 0; i < dataArrKeys.length; i++){
               if(shift) data.get(dataArrKeys[i]).shift();
-              data.get(dataArrKeys[i]).push({ x: parseTime(+ new Date()), y: (Math.random() * 1000) })
+              //data.get(dataArrKeys[i]).push({ x: parseTime(+ new Date()), y: (Math.random() * 1000) })
+              data.get(dataArrKeys[i]).push({
+                x: day,
+                y: Math.random() * 1000
+              });
+              
             }
-
-            console.log(data)
+            value = Math.random() * 1000;
             
             requestAnimationFrame(function() {
               renderScene(selected);

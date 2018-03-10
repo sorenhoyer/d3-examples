@@ -6,11 +6,6 @@
       <script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
       <script src="https://d3js.org/d3-scale.v1.min.js"></script>
       <style type="text/css">
-        .hiddenCanvas{
-          display: none;
-          /*  */background: red;
-        }
-
         div#tooltip {
           position: absolute;        
           display: inline-block;
@@ -20,7 +15,7 @@
           background-color: #fff;
           border: 1px solid #999;
           border-radius: 2px;
-            pointer-events: none;
+          pointer-events: none;
           opacity: 0;
           z-index: 1;
         }
@@ -44,13 +39,15 @@
             },
             width = 960,
             height = 500,
-            colorToPoint = {}, // map to track color the nodes.
             selected = false;
 
         var innerWidth = width - margin.left - margin.right,
             innerHeight = height - margin.top - margin.bottom;
 
-        var data = [];
+        var data = new Map();
+
+        data.set('series1', []);
+        data.set('series2', []);
 
         /* Set up canvas & context */
         /* ========================================== */
@@ -67,19 +64,6 @@
 
         var mainContext = mainCanvas.node().getContext('2d');
 
-        /* Hidden canvas */
-        /* ------------- */
-
-        // Hidden canvas and context
-        var hiddenCanvas = d3.select('#container')
-          .append('canvas')
-          .classed('hiddenCanvas', true)
-          .attr('width', width)
-          .attr('height', height);
-          // .style.display = 'none'
-
-        var hiddenContext = hiddenCanvas.node().getContext('2d');
-
         /* Buffer canvas */
         /* ------------- */
 
@@ -89,25 +73,6 @@
         bufferContext.canvas.width = width;
         bufferContext.canvas.height = height;
 
-        /* Function to create new colours for the picking going from 0,0,0 to 255,255,255 */
-        /* ----------- */
-
-        var nextCol = 1;
-
-        function genColor(){
-          var ret = [];
-          // via http://stackoverflow.com/a/15804183
-          if(nextCol < 16777215){
-            ret.push(nextCol & 0xff); // R
-            ret.push((nextCol & 0xff00) >> 8); // G 
-            ret.push((nextCol & 0xff0000) >> 16); // B
-
-            nextCol += 1; 
-          }
-          var col = "rgb(" + ret.join(',') + ")";
-          return col;
-        }
-
         /* Stuff */
         /* ------------- */
 
@@ -116,6 +81,8 @@
 
         var y = d3.scaleLinear()
           .range([innerHeight, 0]);
+
+        var z = d3.scaleOrdinal(d3.schemeCategory10);
 
         var line = d3.line()
             .x(function(d) {
@@ -128,7 +95,6 @@
             .context(bufferContext);
 
         // mainContext.translate(margin.left, margin.top)
-        hiddenContext.translate(margin.left, margin.top);
         bufferContext.translate(margin.left, margin.top)
         
         function xAxis(context) {
@@ -206,29 +172,36 @@
 
           // Store the current transformation matrix
           bufferContext.save();
-          hiddenContext.save();
 
           // Use the identity matrix while clearing the canvas
           bufferContext.setTransform(1, 0, 0, 1, 0, 0);
           bufferContext.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
-          hiddenContext.setTransform(1, 0, 0, 1, 0, 0);
-          hiddenContext.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
 
           // Restore the transform
           bufferContext.restore();
-          hiddenContext.restore();
-
-          x.domain(d3.extent(data, (d => d.x)));
-          y.domain(d3.extent(data, (d => d.y)));
+          
+          x.domain(d3.extent(data.values().next().value, (d => d.x)));
+          y.domain(
+            //d3.extent([...data.values()], function(s) { return d3.extent(s, function(d) { return d.y }); })
+            [ //d3.extent(data, (d => d.y))
+              d3.min([...data.values()], function(s) { return d3.min(s, function(d) { return d.y }); }),
+              d3.max([...data.values()], function(s) { return d3.max(s, function(d) { return d.y; }); })
+            ]
+          );
+          z.domain([... data.keys()].map(function(k) { return k }));
 
           xAxis(bufferContext);
           yAxis(bufferContext);
 
-          bufferContext.beginPath();
-          line(data);
-          bufferContext.lineWidth = 1.5;
-          bufferContext.strokeStyle = "steelblue";
-          bufferContext.stroke();
+          for (var [key, value] of data.entries()) {
+            
+            bufferContext.beginPath();
+            line(value);
+            bufferContext.lineWidth = 1.5;
+            bufferContext.strokeStyle = z(key)//"steelblue";
+            bufferContext.stroke();
+          }
+          
 
           // if(pointIndex !== false && pointIndex >= 0) {
           //   bufferContext.beginPath();
@@ -249,29 +222,23 @@
           mainContext.drawImage(bufferCanvas, 0, 0, bufferCanvas.width, bufferCanvas.height);
         }   
 
-        function drawHiddenCanvas(){
-          //var points = data;
-          for(var i = 0; i < data.length; i++){
-            let pickedColor = undefined;
-            if(data[i].__pickColor === undefined) {
-              
-              // If we have never drawn the node to the hidden canvas get a new
-              // color for it and put it in the dictionary.
-               
-              pickedColor = genColor();
-              data[i].__pickColor = pickedColor;
-              colorToPoint[data[i].__pickColor] = data[i];
-            } else {
-              pickedColor = data[i].__pickColor;
-            }
+        function nextDay() {
+            now = + new Date(+now + oneDay);
+            return now
+        }
 
-            hiddenContext.beginPath();
-            hiddenContext.arc(x(data[i].x), y(data[i].y), 5, 0, 2*Math.PI);
-            // 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')'
-            hiddenContext.fillStyle = pickedColor //'rgb(' + i + ',0,0)'; // Each hidden point gets a color with the pattern rgb(<country index>, 0, 0).
-            hiddenContext.fill();
+        var now = +new Date(1997, 9, 3);
+        var oneDay = 24 * 3600 * 1000;
 
+        for (var i = 0; i < 2000; i++) {
+          var day = nextDay();
+          for(var k of [...data.keys()]){
+            data.get(k).push({
+              x: day,
+              y: Math.random() * 1000
+            });
           }
+           
         }
 
         /* Main drawing function */
@@ -286,52 +253,81 @@
           var t = d3.interval(function() {
             // console.log(elapsed);
             // if (elapsed > 200) t.stop();
-            if(data.length > 2000)
-              data.shift();
-            data.push({ x: parseTime(+ new Date()), y: (Math.random() * 1000) })
+            var dataArrValues = [... data.values()];
+            var dataArrKeys = [... data.keys()];
+            var shift = false;
+
+            if(dataArrValues && dataArrValues[0].length && dataArrValues[0].length === 2000)
+              shift = true;
+              
+            var day = nextDay();
+            for(var i = 0; i < dataArrKeys.length; i++){
+              if(shift) data.get(dataArrKeys[i]).shift();
+              //data.get(dataArrKeys[i]).push({ x: parseTime(+ new Date()), y: (Math.random() * 1000) })
+              data.get(dataArrKeys[i]).push({
+                x: day,
+                y: Math.random() * 1000
+              });   
+            }
+            
             requestAnimationFrame(function() {
               renderScene(selected);
-              drawHiddenCanvas();
             });
-          }, 100);   
+          }, 1000);   
 
           /* Tooltip visual */
           /* ============== */
 
-          var svg, yScale;
-          buildTooltip();
+          // buildTooltip();
 
-          /* Mouseover countries */
+          /* Mouseover datapoints */
           /* ------------------- */
 
-          mainCanvas.on('mousemove', highlightPicking);
+          mainCanvas.on('mousemove', prepareTooltipData);
 
-          function highlightPicking() {
+          function prepareTooltipData() {
             // Figure out where the mouse click occurred.
             var mouseX = d3.event.layerX || d3.event.offsetX;
             var mouseY = d3.event.layerY || d3.event.offsety;
-
-            // Get the corresponding pixel color on the hidden canvas
-            // and look up the node in our map.
-
-            // This will return that pixel's color
-            var pickedColor = hiddenContext.getImageData(mouseX, mouseY, 1, 1).data;
 
             var inCanvas = 
               Math.abs(mouseX < width) &&
               Math.abs(mouseY < height);
             
-            var colString = "rgb(" + pickedColor[0] + "," + pickedColor[1] + ","+ pickedColor[2] + ")";
+            selected = false;
+   
+            let radius = 5;
 
-            // Our map uses these rgb strings as keys to nodes.
-            // checking for inCanvas and antialiasing (&& pickedColor[3] === 255)
-            selected = inCanvas && pickedColor[3] === 255 ? colString : false; 
+            if(inCanvas) {
+              for([key, datapoints] of data.entries()) {
+                for(let point of datapoints) {
+                  let cx = x(new Date(point.x)) + margin.left;
+                  let cy = y(point.y) + margin.top;
+                  let dx = mouseX-cx;
+                  let dy = mouseY-cy;
+                  if(dx < radius/* dx*dx+dy*dy<radius*radius */){
+                    let obj = {
+                      x: new Date(point.x),
+                      y: point.y,
+                    }
+                    if(selected) {
+                      selected[key] = obj;
+                    } else {
+                      selected = {}
+                      selected[key] = obj;
+                    }
+                    
+                    break;
+                  }
+                }
+              }
+            }
 
             // requestAnimationFrame(function() {
             //   renderScene(selected);
             // });
 
-            if (selected !== false) showTooltip(mouseX, mouseY, colorToPoint[selected])
+            if (selected !== false) showTooltip(mouseX, mouseY, selected)
             if (selected === false) hideTooltip();
           }
 
@@ -348,12 +344,18 @@
             pointQueue.pop();
             
             // Build and move tooltip accordingly
+            const keys = Object.keys(element);
+
+            let html = `<p>${element[keys[0]].x}</p>`;
+            for(let key of keys){
+              html += `<p>${key}: ${element[key].y}</p>`
+            }
             
             d3.select('#tooltip')
               .style('opacity', 0.8)
               .style('left', mouseX + 5 + 'px')
               .style('top', mouseY + 5 + 'px')
-              .html('x: ' + element.x + '<br>' + 'y: ' + element.y);
+              .html(html);
           }
 
           function hideTooltip() {
