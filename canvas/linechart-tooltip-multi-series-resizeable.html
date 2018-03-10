@@ -1,0 +1,411 @@
+<html>
+   <head>
+      <!--https://www.safaribooksonline.com/library/view/learning-d3js-4/9781787280175/f17a9532-e27f-4a97-969c-ebd0dc66524d.xhtml-->
+      <meta charset="utf-8">
+      <script src="https://d3js.org/d3.v5.min.js"></script>
+      <script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+      <script src="https://d3js.org/d3-scale.v1.min.js"></script>
+      <style type="text/css">
+        html, body {
+          width: 100%;
+          height: 100%;
+          margin: 0;
+          overflow: hidden; /*  Disable scrollbars */
+          display: block;  /* No floating content on sides */
+        }
+        #container, canvas{
+          width: 100%;
+          height: 100%;
+        }
+
+        div#tooltip {
+          position: absolute;        
+          display: inline-block;
+          padding: 10px;
+          font-family: 'Open Sans' sans-serif;
+          color: #000;
+          background-color: #fff;
+          border: 1px solid #999;
+          border-radius: 2px;
+          pointer-events: none;
+          opacity: 0;
+          z-index: 1;
+        }
+      </style>
+   </head>
+   <body>
+      <div id="container"></div>
+      <div id="tooltip"></div>
+      
+      <script>
+        function resizeCanvas(){
+          c = document.getElementById('mainCanvas');
+          c.width = window.innerWidth;
+          c.height = window.innerHeight;
+          ctx = c.getContext('2d');
+          ctx.canvas.width = window.innerWidth;
+          ctx.canvas.height = window.innerHeight;
+        }
+        
+        window.addEventListener('resize', resizeCanvas, false);
+
+        /* Set up global variables */
+        /* ======================= */
+        
+        var parseTime = d3.timeParse("%Q"); // %d-%b-%y
+
+        var margin = {
+              top: 20,
+              right: 20,
+              bottom: 30,
+              left: 50
+            },
+            width = 960,
+            height = 500,
+            selected = false;
+
+        var innerWidth = width - margin.left - margin.right,
+            innerHeight = height - margin.top - margin.bottom;
+
+        var data = new Map();
+
+        data.set('series1', []);
+        data.set('series2', []);
+
+        /* Set up canvas & context */
+        /* ========================================== */
+
+        /* Main canvas */
+        /* ----------- */
+
+        // Main canvas and context
+        var mainCanvas = d3.select('#container')
+          .append('canvas')
+          .attr('id','mainCanvas')
+          .classed('mainCanvas', true)
+          .attr('width', width)
+          .attr('height', height)
+
+        var mainContext = mainCanvas.node().getContext('2d');
+
+        /* Buffer canvas */
+        /* ------------- */
+
+        var bufferCanvas = document.createElement('canvas');
+        var bufferContext = bufferCanvas.getContext('2d') // .translate(margin.left, margin.top)
+        
+        bufferContext.canvas.width = width;
+        bufferContext.canvas.height = height;
+
+        /* Stuff */
+        /* ------------- */
+
+        var x = d3.scaleTime()
+          .range([0, innerWidth - 100]);
+
+        var y = d3.scaleLinear()
+          .range([innerHeight, 0]);
+
+        var z = d3.scaleOrdinal(d3.schemeCategory10);
+
+        var line = d3.line()
+            .x(function(d) {
+              return x(d.x);
+            })
+            .y(function(d) {
+              return y(d.y);
+            })
+            .curve(d3.curveLinear)
+            .context(bufferContext);
+
+        // mainContext.translate(margin.left, margin.top)
+        bufferContext.translate(margin.left, margin.top)
+        
+        function xAxis(context) {
+          var tickCount = 10,
+            tickSize = 6,
+            ticks = x.ticks(tickCount),
+            tickFormat = x.tickFormat();
+
+          context.beginPath();
+          ticks.forEach(function(d) {
+            context.moveTo(x(d), innerHeight);
+            context.lineTo(x(d), innerHeight + tickSize);
+          });
+          context.strokeStyle = "black";
+          context.stroke();
+
+          // context.beginPath();
+          // context.moveTo(0, innerHeight);
+          // //context.lineTo(0.5, 0);
+          // context.lineTo(innerWidth, innerHeight);
+          // //context.lineTo(-tickSize, innerWidth);
+          // context.strokeStyle = "black";
+          // context.stroke();
+
+          context.textAlign = "center";
+          context.textBaseline = "top";
+          ticks.forEach(function(d) {
+            context.fillText(tickFormat(d), x(d), innerHeight + tickSize);
+          });
+        }
+
+        function yAxis(context) {
+          var tickCount = 10,
+            tickSize = 6,
+            tickPadding = 3,
+            ticks = y.ticks(tickCount),
+            tickFormat = y.tickFormat(tickCount);
+
+          bufferContext.lineWidth = 1;
+          context.beginPath();
+          ticks.forEach(function(d) {
+            context.moveTo(0, y(d));
+            context.lineTo(-6, y(d));
+          });
+          context.strokeStyle = "black";
+          context.stroke();
+
+          context.beginPath();
+          context.moveTo(-tickSize, 0);
+          context.lineTo(0.5, 0);
+          context.lineTo(0.5, innerHeight);
+          context.lineTo(-tickSize, innerHeight);
+          context.strokeStyle = "black";
+          context.stroke();
+
+          context.textAlign = "right";
+          context.textBaseline = "middle";
+          ticks.forEach(function(d) {
+            context.fillText(tickFormat(d), -tickSize - tickPadding, y(d));
+          });
+
+          context.save();
+          context.rotate(-Math.PI / 2);
+          context.textAlign = "right";
+          context.textBaseline = "top";
+          context.font = "bold 10px sans-serif";
+          context.fillText("Value", (-innerHeight / 2) + 20, -50);
+          context.restore();
+        }
+
+        /* Drawing functions */
+        /* ================= */
+
+        function drawScene(pointIndex){
+
+          // Store the current transformation matrix
+          bufferContext.save();
+
+          // Use the identity matrix while clearing the canvas
+          bufferContext.setTransform(1, 0, 0, 1, 0, 0);
+          bufferContext.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height);
+
+          // Restore the transform
+          bufferContext.restore();
+          
+          x.domain(d3.extent(data.values().next().value, (d => d.x)));
+          y.domain(
+            //d3.extent([...data.values()], function(s) { return d3.extent(s, function(d) { return d.y }); })
+            [ //d3.extent(data, (d => d.y))
+              d3.min([...data.values()], function(s) { return d3.min(s, function(d) { return d.y }); }),
+              d3.max([...data.values()], function(s) { return d3.max(s, function(d) { return d.y; }); })
+            ]
+          );
+          z.domain([... data.keys()].map(function(k) { return k }));
+
+          xAxis(bufferContext);
+          yAxis(bufferContext);
+
+          var legendHeightPos = (innerHeight / 2) - ((data.size*20) / 2);
+
+          for (var [key, value] of data.entries()) {
+            bufferContext.beginPath();
+            bufferContext.fillStyle = z(key);
+            bufferContext.fillRect(innerWidth-80, legendHeightPos, 10, 10)
+
+            bufferContext.beginPath();
+            bufferContext.fillStyle = "black";
+            bufferContext.textAlign = "left";
+            bufferContext.fillText(key, innerWidth-60, legendHeightPos+4);
+
+            legendHeightPos = legendHeightPos + 15;
+
+            bufferContext.beginPath();
+            line(value);
+            bufferContext.lineWidth = 1.5;
+            
+            bufferContext.strokeStyle = z(key)//"steelblue";
+            bufferContext.stroke();
+          }
+          
+
+          // if(pointIndex !== false && pointIndex >= 0) {
+          //   bufferContext.beginPath();
+          //   bufferContext.fillStyle = 'steelblue';
+          //   bufferContext.arc(x(data[pointIndex].x), y(data[pointIndex].y), 5, 0, 2*Math.PI);
+          //   bufferContext.fill();
+          // }
+          
+        }
+        
+        function renderScene(pointIndex){
+          // Draw scene
+          drawScene(pointIndex);
+          
+          mainContext.clearRect(0, 0, bufferCanvas.width, bufferCanvas.height)
+
+          // Render scene
+          mainContext.drawImage(bufferCanvas, 0, 0, bufferCanvas.width, bufferCanvas.height);
+        }   
+
+        function nextDay() {
+            now = + new Date(+now + oneDay);
+            return now
+        }
+
+        var now = +new Date(1997, 9, 3);
+        var oneDay = 24 * 3600 * 1000;
+
+        for (var i = 0; i < 2000; i++) {
+          var day = nextDay();
+          for(var k of [...data.keys()]){
+            data.get(k).push({
+              x: day,
+              y: Math.random() * 1000
+            });
+          }
+          
+        }
+
+        /* Main drawing function */
+        /* ===================== */
+
+        function ready() {
+
+          /* Initial Draw */
+          /* ------------ */
+
+          // Draw the scene
+          var t = d3.interval(function() {
+            // console.log(elapsed);
+            // if (elapsed > 200) t.stop();
+            var dataArrValues = [... data.values()];
+            var dataArrKeys = [... data.keys()];
+            var shift = false;
+
+            if(dataArrValues && dataArrValues[0].length && dataArrValues[0].length === 2000)
+              shift = true;
+              
+            var day = nextDay();
+            for(var i = 0; i < dataArrKeys.length; i++){
+              if(shift) data.get(dataArrKeys[i]).shift();
+              //data.get(dataArrKeys[i]).push({ x: parseTime(+ new Date()), y: (Math.random() * 1000) })
+              data.get(dataArrKeys[i]).push({
+                x: day,
+                y: Math.random() * 1000
+              });   
+            }
+            
+            requestAnimationFrame(function() {
+              renderScene(selected);
+            });
+          }, 1000);   
+
+          /* Tooltip visual */
+          /* ============== */
+
+          // buildTooltip();
+
+          /* Mouseover datapoints */
+          /* ------------------- */
+
+          mainCanvas.on('mousemove', prepareTooltipData);
+
+          function prepareTooltipData() {
+            // Figure out where the mouse click occurred.
+            var mouseX = d3.event.layerX || d3.event.offsetX;
+            var mouseY = d3.event.layerY || d3.event.offsety;
+
+            var inCanvas = 
+              Math.abs(mouseX < width) &&
+              Math.abs(mouseY < height);
+            
+            selected = false;
+  
+            let radius = 5;
+
+            if(inCanvas) {
+              for([key, datapoints] of data.entries()) {
+                for(let point of datapoints) {
+                  let cx = x(new Date(point.x)) + margin.left;
+                  let cy = y(point.y) + margin.top;
+                  let dx = mouseX-cx;
+                  let dy = mouseY-cy;
+                  if(dx < radius/* dx*dx+dy*dy<radius*radius */){
+                    let obj = {
+                      x: new Date(point.x),
+                      y: point.y,
+                    }
+                    if(selected) {
+                      selected[key] = obj;
+                    } else {
+                      selected = {}
+                      selected[key] = obj;
+                    }
+                    
+                    break;
+                  }
+                }
+              }
+            }
+
+            // requestAnimationFrame(function() {
+            //   renderScene(selected);
+            // });
+
+            if (selected !== false) showTooltip(mouseX, mouseY, selected)
+            if (selected === false) hideTooltip();
+          }
+
+          function buildTooltip() {
+            // To-do:
+          }
+
+          var pointQueue = [undefined, undefined]; // initialise queue array to check for new build
+
+          function showTooltip(mouseX, mouseY, element) {
+
+            // Create queue to check when to build new tooltip
+            pointQueue.unshift(element.x);
+            pointQueue.pop();
+            
+            // Build and move tooltip accordingly
+            const keys = Object.keys(element);
+
+            let html = `<p>${element[keys[0]].x}</p>`;
+            for(let key of keys){
+              html += `<p>${key}: ${element[key].y}</p>`
+            }
+            
+            d3.select('#tooltip')
+              .style('opacity', 0.8)
+              .style('left', mouseX + 5 + 'px')
+              .style('top', mouseY + 5 + 'px')
+              .html(html);
+          }
+
+          function hideTooltip() {
+            pointQueue.unshift(undefined);
+            pointQueue.pop();
+
+            d3.select('#tooltip')
+              // .transition().duration(100)
+              .style('opacity', 0);
+          }
+        }
+
+        ready()
+      </script>
+   </body>
+</html>
